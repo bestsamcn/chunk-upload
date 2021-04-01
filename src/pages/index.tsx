@@ -3,11 +3,9 @@
 import React, { ChangeEventHandler } from 'react';
 import SparkMD5 from 'spark-md5';
 import Axios from 'axios';
-import FileWorker from 'worker-loader!../upload/File.worker';
 import { FileProps, MessageData, POST_MESSAGE_TYPE, RETURN_MESSAGE_TYPE } from '../upload/UploadProps';
+import { ThreadPool } from '../upload/ThreadPool';
 
-
-const fileWorker = new FileWorker();
 
 
 /**1MB的字节 */
@@ -15,6 +13,7 @@ const MB = 1024 * 1024;
 export default class ChunkUpload extends React.Component<{}, {progress:number, status:string}> {
     private chunks = [];
     private _files:FileProps[] = [];
+    private _threadPool = ThreadPool.create();
     constructor(props:{}) {
         super(props);
 

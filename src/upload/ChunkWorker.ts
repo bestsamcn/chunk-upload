@@ -2,24 +2,24 @@
  * @Description:file worker
  * @Author: SZEWEC
  * @Date: 2021-03-31 17:30:37
- * @LastEditTime: 2021-04-01 13:51:37
+ * @LastEditTime: 2021-04-01 17:11:57
  * @LastEditors: Sam
  */
 
 
 import SparkMD5 from 'spark-md5';
-import { POST_MESSAGE_TYPE, MessageData, RETURN_MESSAGE_TYPE, TaskProps } from './UploadProps';
+import { PostMessageType, MessageData, ReturnMessageType, TaskProps } from './BaseProps';
 const MB = 1024 * 1024;
 
 
 /**上传线程 */
-class FileWorker{
+class ChunkWorker{
 
     /**上下文 */
     private readonly _global = self;
 
     /**worker */
-    public static worker:FileWorker;
+    public static worker:ChunkWorker;
 
     /**最大任务处理数 */
     private static readonly MAX_TASK_NUM = 1;
@@ -61,14 +61,14 @@ class FileWorker{
         const { type, task, id } = evt.data as MessageData;
 
         /**新增 */
-        if(type === POST_MESSAGE_TYPE.ADD){
+        if(type === PostMessageType.ADD){
 
             if(!task || !task.id){
-                return this._returnMessage({id:'UNDEFINED', type:RETURN_MESSAGE_TYPE.ERROR, message:'the specified task is undefined!'});
+                return this._returnMessage({id:'UNDEFINED', type:ReturnMessageType.ERROR, message:'the specified task is undefined!'});
             }
 
             if(this._taskList.some(_task=>_task.id === task.id)){
-                return this._returnMessage({id:task.id, type:RETURN_MESSAGE_TYPE.EXIST, message:'the specified task already exist!'});
+                return this._returnMessage({id:task.id, type:ReturnMessageType.EXIST, message:'the specified task already exist!'});
             }
 
             this._taskList.push({...task, chunks:[], currentIndex:0, status:'PENDING'});
@@ -85,18 +85,18 @@ class FileWorker{
         }
 
         /**重试只能触发PAUSE与ERROR状态的任务-且必须当前无任务在执行 */
-        if(type === POST_MESSAGE_TYPE.RETRY){
+        if(type === PostMessageType.RETRY){
             console.log('task retry');
             if(!task || !task.id){
-                return this._returnMessage({id:'UNDEFINED', type:RETURN_MESSAGE_TYPE.ERROR, message:'task id do not exist!'});
+                return this._returnMessage({id:'UNDEFINED', type:ReturnMessageType.ERROR, message:'task id do not exist!'});
             }
 
             if(!this._taskList.some(_task=>_task.id === task.id)){
-                return this._returnMessage({id:task.id, type:RETURN_MESSAGE_TYPE.EXIST, message:'the specified task do not exist!'});
+                return this._returnMessage({id:task.id, type:ReturnMessageType.EXIST, message:'the specified task do not exist!'});
             }
 
             if(this._currentTask){
-                return this._returnMessage({id:task.id, type:RETURN_MESSAGE_TYPE.PENDING, message:'one task is running now!'});
+                return this._returnMessage({id:task.id, type:ReturnMessageType.PENDING, message:'one task is running now!'});
             }
 
             const taskToRun =  this._taskList.find(_task=>_task.id === task.id);
@@ -110,15 +110,15 @@ class FileWorker{
 
         }
 
-        if(type === POST_MESSAGE_TYPE.CANCEL){
+        if(type === PostMessageType.CANCEL){
             console.log('task cancel');
             if(!task || !task.id){
-                return this._returnMessage({id:'UNDEFINED', type:RETURN_MESSAGE_TYPE.ERROR, message:'the specified task task id do not exist!'});
+                return this._returnMessage({id:'UNDEFINED', type:ReturnMessageType.ERROR, message:'the specified task task id do not exist!'});
             }
 
             const existTask = this._taskList.find(_task=>_task.id === task.id);
             if(!existTask){
-                return this._returnMessage({id, type:RETURN_MESSAGE_TYPE.ERROR, message:'the specified task task id do not exist!'});
+                return this._returnMessage({id, type:ReturnMessageType.ERROR, message:'the specified task task id do not exist!'});
             }
 
             /**运算中的任务，在运行中结束 */
@@ -131,19 +131,19 @@ class FileWorker{
             const index = this._taskList.findIndex(_task=>_task.id === task.id);
             if(index !== -1){
                 this._taskList.splice(index, 1);
-                this._returnMessage({id:task.id, type:RETURN_MESSAGE_TYPE.CANCEL, message:'the specified task has been successfully removed'});
+                this._returnMessage({id:task.id, type:ReturnMessageType.CANCEL, message:'the specified task has been successfully removed'});
             }
         }
 
-        if(type === POST_MESSAGE_TYPE.PAUSE){
+        if(type === PostMessageType.PAUSE){
             console.log('task pause');
             if(!task || !task.id){
-                return this._returnMessage({id, type:RETURN_MESSAGE_TYPE.ERROR, message:'the specified task task id do not exist!'});
+                return this._returnMessage({id, type:ReturnMessageType.ERROR, message:'the specified task task id do not exist!'});
             }
 
             const existTask = this._taskList.find(_task=>_task.id === task.id);
             if(!existTask){
-                return this._returnMessage({id, type:RETURN_MESSAGE_TYPE.ERROR, message:'the specified task task id do not exist!'});
+                return this._returnMessage({id, type:ReturnMessageType.ERROR, message:'the specified task task id do not exist!'});
             }
 
             /**运行中的任务，在execute中暂停 */
@@ -160,7 +160,7 @@ class FileWorker{
 
         const { file, status } = task;
         if(status !== 'RUNNING'){
-            return this._returnMessage({type:RETURN_MESSAGE_TYPE.ERROR, id:task.id, message:"the specified task's status is not running"});
+            return this._returnMessage({type:ReturnMessageType.ERROR, id:task.id, message:"the specified task's status is not running"});
         }
 
         /**后缀获取 */
@@ -199,7 +199,7 @@ class FileWorker{
 
                 /**不需要移除task */
                 this._shiftTaskAndExecuteNext();
-                return this._returnMessage({type:RETURN_MESSAGE_TYPE.PUASE, id:task.id, message:'the specified task has been successfully paused'});
+                return this._returnMessage({type:ReturnMessageType.PUASE, id:task.id, message:'the specified task has been successfully paused'});
             }
 
             /**取消 */
@@ -208,7 +208,7 @@ class FileWorker{
 
                 /**需要移除task */
                 this._shiftTaskAndExecuteNext(task);
-                return this._returnMessage({type:RETURN_MESSAGE_TYPE.CANCEL, id:task.id, message:'the specified task has been successfully canceled'});
+                return this._returnMessage({type:ReturnMessageType.CANCEL, id:task.id, message:'the specified task has been successfully canceled'});
             }
 
             const begin = chunkByteSize * task.currentIndex;
@@ -221,22 +221,33 @@ class FileWorker{
                 spark.append(ab);
                 const progress = task.currentIndex / count * 100;
                 const returnProgress = Math.floor(progress);
-                this._returnMessage({id:task.id, type:RETURN_MESSAGE_TYPE.PROGRESS, progress:returnProgress});
+                this._returnMessage({id:task.id, type:ReturnMessageType.PROGRESS, progress:returnProgress});
                 chunks.push({ data: chunk, index: task.currentIndex });
             }catch(error){
                 task.status = 'ERROR';
 
                 /**不需要移除task */
                 this._shiftTaskAndExecuteNext();
-                return this._returnMessage({id:task.id, type:RETURN_MESSAGE_TYPE.ERROR, message:'catch an error while reading blob to arraybuffer'})
+                return this._returnMessage({id:task.id, type:ReturnMessageType.ERROR, message:'catch an error while reading blob to arraybuffer'})
             }
 
         }
         // const md5Features = file.name+'-'+file.modifiedTime+'-'+file.size;
         // spark.append(md5Features);
         const md5 = spark.end();
-        const fileProps = {id:task.id, file, md5, chunks:[...chunks], total:chunks.length, index:0, extention};
-        this._returnMessage({id:task.id, type:RETURN_MESSAGE_TYPE.SUCCESS, file:fileProps});
+        const fileProps = {
+            id:task.id,
+            name,
+            timestemp:Date.now(),
+            file,
+            md5,
+            chunks:[...chunks],
+            total:chunks.length,
+            index:0,
+            extention,
+            progress:0
+        };
+        this._returnMessage({id:task.id, type:ReturnMessageType.SUCCESS, file:fileProps});
 
         /**重新取第一个PENDING任务执行 */
        this._shiftTaskAndExecuteNext(task);
@@ -290,7 +301,7 @@ class FileWorker{
 }
 
 //@ts-ignore
-self.worker = new FileWorker();
+self.worker = new ChunkWorker();
 
 
 

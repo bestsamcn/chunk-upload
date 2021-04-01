@@ -2,11 +2,40 @@
  * @Description:Upload Props
  * @Author: SZEWEC
  * @Date: 2021-04-01 10:38:38
- * @LastEditTime: 2021-04-01 10:41:03
+ * @LastEditTime: 2021-04-01 17:16:03
  * @LastEditors: Sam
  */
+
+/**文件状态 */
+export enum FileStatus{
+
+    /**切片 */
+    CUTTING = 'CUTTING',
+    CUT_ERROR = 'CUT_ERROR',
+    CUT_SUCCESS = 'CUT_SUCCESS',
+
+
+    /**上传 */
+    UPLOADING = 'UPLOADING',
+    UPLOAD_ERROR = 'UPLOAD_ERROR',
+    UPLOAD_SUCCESS = 'UPLOAD_SUCCESS',
+
+    /**合并 */
+    MERGING = 'MERGING',
+    MERGE_ERROR = 'MERGE_ERROR',
+    MERGE_SUCCESS = 'MERGE_SUCCESS',
+
+    /**解压 */
+    DECOMPRESSING = 'DECOMPRESSING',
+    DECOMPRESS_ERROR = 'DECOMPRESSING_ERROR',
+    DECOMPRESS_SUCCESS = 'DECOMPRESS_SUCCESS',
+
+    /**上传成功 */
+    SUCCESS = 'SUCCESS',
+}
+
 /**返回的消息类型 */
-export enum RETURN_MESSAGE_TYPE{
+export enum ReturnMessageType{
 
     /**成功 */
     SUCCESS = 'SUCCESS',
@@ -38,7 +67,7 @@ export enum RETURN_MESSAGE_TYPE{
 
 
 /**接受的消息类型 */
-export enum POST_MESSAGE_TYPE{
+export enum PostMessageType{
 
     /**新增文件 */
     ADD = 'ADD',
@@ -64,15 +93,36 @@ export interface ChunkProps{
     index:Number;
 }
 
-
-/**任务信息 */
-export interface FileProps{
+export interface BaseFileProps{
 
     /**任务id-与文件id一致 */
     id:string;
 
+    /**事件戳-切图完成 */
+    timestemp:number;
+
+    /**名称 */
+    name:string;
+
+    /**后缀格式 */
+    extention:string;
+
     /**文件 */
     file:File;
+
+    /**体积BYTE */
+    size:number;
+
+    /**状态 */
+    status:FileStatus;
+
+    /**进度 */
+    progress:number;
+}
+
+
+/**任务信息 */
+export interface FileProps extends BaseFileProps{
 
     /**md5 */
     md5:string;
@@ -85,9 +135,6 @@ export interface FileProps{
 
     /**当前分片索引 */
     index:number;
-
-    /**后缀格式 */
-    extention:string;
 }
 
 
@@ -118,13 +165,13 @@ export interface MessageData{
     id:string;
 
     /**类型 */
-    type:RETURN_MESSAGE_TYPE|POST_MESSAGE_TYPE;
+    type:ReturnMessageType|PostMessageType;
 
     /**提示 */
     message?:string;
 
     /**任务信息 */
-    task?:TaskProps;
+    task?:BaseFileProps;
 
     /**进度 */
     progress?:number;
