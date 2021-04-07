@@ -2,44 +2,46 @@
  * @Description:file worker
  * @Author: SZEWEC
  * @Date: 2021-03-31 17:30:37
- * @LastEditTime: 2021-04-01 17:11:57
+ * @LastEditTime: 2021-04-08 00:05:38
  * @LastEditors: Sam
  */
 
-
 import SparkMD5 from 'spark-md5';
-import { PostMessageType, MessageData, ReturnMessageType, TaskProps } from './BaseProps';
+import {
+    PostMessageType,
+    MessageData,
+    ReturnMessageType,
+    TaskProps,
+} from './BaseProps';
 const MB = 1024 * 1024;
 
-
 /**上传线程 */
-class ChunkWorker{
-
+class ChunkWorker {
     /**上下文 */
     private readonly _global = self;
 
     /**worker */
-    public static worker:ChunkWorker;
+    public static worker: ChunkWorker;
 
     /**最大任务处理数 */
     private static readonly MAX_TASK_NUM = 1;
 
     /**任务列表 */
-    private _taskList:TaskProps[] = [];
+    private _taskList: TaskProps[] = [];
 
     /**当前任务 */
-    private _currentTask:TaskProps|null = null;
+    private _currentTask: TaskProps | null = null;
 
     /**构造 */
-    public constructor(){
+    public constructor() {
         this._initialize();
     }
 
-    public postMessage(data:any){}
-    public onmessage(evt:MessageData){}
+    public postMessage(data: any) {}
+    public onmessage(evt: MessageData) {}
 
     /**初始化 */
-    private _initialize(){
+    private _initialize() {
         this._global.onmessage = this._acceptMessage.bind(this);
     }
 
@@ -47,107 +49,151 @@ class ChunkWorker{
      * 返回消息
      * @param data
      */
-    private _returnMessage(data:MessageData){
+    private _returnMessage(data: MessageData) {
         this._global.postMessage(data);
     }
-
 
     /**
      * 接受消息
      * @param evt
      */
-    private _acceptMessage(evt:MessageEvent){
-
-        const { type, task, id } = evt.data as MessageData;
+    private _acceptMessage(evt: MessageEvent) {
+        const { type, file, id } = evt.data as MessageData;
 
         /**新增 */
-        if(type === PostMessageType.ADD){
-
-            if(!task || !task.id){
-                return this._returnMessage({id:'UNDEFINED', type:ReturnMessageType.ERROR, message:'the specified task is undefined!'});
+        if (type === PostMessageType.ADD) {
+            if (!file || !file.id) {
+                return this._returnMessage({
+                    id: 'UNDEFINED',
+                    type: ReturnMessageType.ERROR,
+                    message: 'the specified task is undefined!',
+                });
             }
 
-            if(this._taskList.some(_task=>_task.id === task.id)){
-                return this._returnMessage({id:task.id, type:ReturnMessageType.EXIST, message:'the specified task already exist!'});
+            if (this._taskList.some((_task) => _task.id === file.id)) {
+                return this._returnMessage({
+                    id: file.id,
+                    type: ReturnMessageType.EXIST,
+                    message: 'the specified task already exist!',
+                });
             }
 
-            this._taskList.push({...task, chunks:[], currentIndex:0, status:'PENDING'});
+            this._taskList.push({
+                ...file,
+                chunks: [],
+                executeStatus: 'PENDING',
+                total: 0,
+                md5: '',
+                index: 0,
+            });
 
             /** 用户暂停的任务，只能用户自己重新执行, 每次仅读取PENDING的任务 */
-            if(!this._currentTask){
-                const pendingTaskList = this._taskList.filter(task=>task.status === 'PENDING');
-                if(pendingTaskList.length){
+            if (!this._currentTask) {
+                const pendingTaskList = this._taskList.filter(
+                    (task) => task.executeStatus === 'PENDING',
+                );
+                if (pendingTaskList.length) {
                     this._currentTask = pendingTaskList[0];
-                    this._currentTask.status = 'RUNNING';
+                    this._currentTask.executeStatus = 'RUNNING';
                     this._executeTask(this._currentTask);
                 }
             }
         }
 
         /**重试只能触发PAUSE与ERROR状态的任务-且必须当前无任务在执行 */
-        if(type === PostMessageType.RETRY){
+        if (type === PostMessageType.RETRY) {
             console.log('task retry');
-            if(!task || !task.id){
-                return this._returnMessage({id:'UNDEFINED', type:ReturnMessageType.ERROR, message:'task id do not exist!'});
+            if (!id) {
+                return this._returnMessage({
+                    id: 'UNDEFINED',
+                    type: ReturnMessageType.ERROR,
+                    message: 'file id do not exist!',
+                });
             }
 
-            if(!this._taskList.some(_task=>_task.id === task.id)){
-                return this._returnMessage({id:task.id, type:ReturnMessageType.EXIST, message:'the specified task do not exist!'});
+            if (!this._taskList.some((_task) => _task.id === id)) {
+                return this._returnMessage({
+                    id,
+                    type: ReturnMessageType.NOT_EXIST,
+                    message: 'the specified file do not exist!',
+                });
             }
 
-            if(this._currentTask){
-                return this._returnMessage({id:task.id, type:ReturnMessageType.PENDING, message:'one task is running now!'});
+            if (this._currentTask) {
+                return this._returnMessage({
+                    id,
+                    type: ReturnMessageType.PENDING,
+                    message: 'one file is processing now!',
+                });
             }
 
-            const taskToRun =  this._taskList.find(_task=>_task.id === task.id);
-            if(taskToRun){
+            const taskToRun = this._taskList.find((_task) => _task.id === id);
+            if (taskToRun) {
                 console.log('retry running');
-                taskToRun.status = 'RUNNING';
+                taskToRun.executeStatus = 'RUNNING';
                 this._currentTask = taskToRun;
                 this._executeTask(this._currentTask);
             }
-
-
         }
 
-        if(type === PostMessageType.CANCEL){
+        if (type === PostMessageType.CANCEL) {
             console.log('task cancel');
-            if(!task || !task.id){
-                return this._returnMessage({id:'UNDEFINED', type:ReturnMessageType.ERROR, message:'the specified task task id do not exist!'});
+            if (!id) {
+                return this._returnMessage({
+                    id: 'UNDEFINED',
+                    type: ReturnMessageType.ERROR,
+                    message: 'the specified file id do not exist!',
+                });
             }
 
-            const existTask = this._taskList.find(_task=>_task.id === task.id);
-            if(!existTask){
-                return this._returnMessage({id, type:ReturnMessageType.ERROR, message:'the specified task task id do not exist!'});
+            const existTask = this._taskList.find((_task) => _task.id === id);
+            if (!existTask) {
+                return this._returnMessage({
+                    id,
+                    type: ReturnMessageType.ERROR,
+                    message: 'the specified file id do not exist!',
+                });
             }
 
             /**运算中的任务，在运行中结束 */
-            if(existTask.status === 'RUNNING'){
-                existTask.status = 'CANCEL';
+            if (existTask.executeStatus === 'RUNNING') {
+                existTask.executeStatus = 'CANCEL';
                 return;
             }
 
             /**获取最新的位置 */
-            const index = this._taskList.findIndex(_task=>_task.id === task.id);
-            if(index !== -1){
+            const index = this._taskList.findIndex((_task) => _task.id === id);
+            if (index !== -1) {
                 this._taskList.splice(index, 1);
-                this._returnMessage({id:task.id, type:ReturnMessageType.CANCEL, message:'the specified task has been successfully removed'});
+                this._returnMessage({
+                    id,
+                    type: ReturnMessageType.CANCEL,
+                    message: 'the specified file has been successfully removed',
+                });
             }
         }
 
-        if(type === PostMessageType.PAUSE){
+        if (type === PostMessageType.PAUSE) {
             console.log('task pause');
-            if(!task || !task.id){
-                return this._returnMessage({id, type:ReturnMessageType.ERROR, message:'the specified task task id do not exist!'});
+            if (!id) {
+                return this._returnMessage({
+                    id,
+                    type: ReturnMessageType.ERROR,
+                    message: 'the specified file id do not exist!',
+                });
             }
 
-            const existTask = this._taskList.find(_task=>_task.id === task.id);
-            if(!existTask){
-                return this._returnMessage({id, type:ReturnMessageType.ERROR, message:'the specified task task id do not exist!'});
+            const existTask = this._taskList.find((_task) => _task.id === id);
+            if (!existTask) {
+                return this._returnMessage({
+                    id,
+                    type: ReturnMessageType.ERROR,
+                    message: 'the specified file id do not exist!',
+                });
             }
 
             /**运行中的任务，在execute中暂停 */
-            existTask.status = 'PAUSE';
+            existTask.executeStatus = 'PAUSE';
         }
     }
 
@@ -155,20 +201,14 @@ class ChunkWorker{
      * 获取分片与md5
      * @param task
      */
-    private async _executeTask(task:TaskProps){
-
-
-        const { file, status } = task;
-        if(status !== 'RUNNING'){
-            return this._returnMessage({type:ReturnMessageType.ERROR, id:task.id, message:"the specified task's status is not running"});
-        }
-
-        /**后缀获取 */
-        const name = file.name;
-        const matches = name.match(/.*\.([^\.]*)/);
-        let extention = '';
-        if (matches && matches.length) {
-            extention = matches[1];
+    private async _executeTask(task: TaskProps) {
+        const { file, executeStatus } = task;
+        if (executeStatus !== 'RUNNING') {
+            return this._returnMessage({
+                type: ReturnMessageType.ERROR,
+                id: task.id,
+                message: "the specified task's status is not running",
+            });
         }
 
         const spark = new SparkMD5();
@@ -180,7 +220,6 @@ class ChunkWorker{
         if (chunkByteSize > file.size) {
             chunkByteSize = file.size;
         } else {
-
             /** 因为最多 10000 chunk，所以如果 chunkSize 不符合则把每片 chunk 大小扩大两倍 */
             while (file.size > chunkByteSize * 10000) {
                 chunkByteSize *= 2;
@@ -191,84 +230,105 @@ class ChunkWorker{
         const chunks = task.chunks || [];
         const count = Math.ceil(file.size / chunkByteSize);
         console.log(task, 'running task');
-        for (task.currentIndex = task.currentIndex || 0; task.currentIndex < count; task.currentIndex++) {
-
-
+        for (task.index = task.index || 0; task.index < count; task.index++) {
             /**执行过程中暂停 */
-            if(task.status === 'PAUSE'){
-
+            if (task.executeStatus === 'PAUSE') {
                 /**不需要移除task */
                 this._shiftTaskAndExecuteNext();
-                return this._returnMessage({type:ReturnMessageType.PUASE, id:task.id, message:'the specified task has been successfully paused'});
+                return this._returnMessage({
+                    type: ReturnMessageType.PAUSE,
+                    id: task.id,
+                    message: 'the specified task has been successfully paused',
+                });
             }
 
             /**取消 */
-            if(task.status === 'CANCEL'){
-                task.status = 'CANCEL';
+            if (task.executeStatus === 'CANCEL') {
+                task.executeStatus = 'CANCEL';
 
                 /**需要移除task */
                 this._shiftTaskAndExecuteNext(task);
-                return this._returnMessage({type:ReturnMessageType.CANCEL, id:task.id, message:'the specified task has been successfully canceled'});
+                return this._returnMessage({
+                    type: ReturnMessageType.CANCEL,
+                    id: task.id,
+                    message:
+                        'the specified task has been successfully canceled',
+                });
             }
 
-            const begin = chunkByteSize * task.currentIndex;
-            const end = task.currentIndex === count - 1 ? file.size : chunkByteSize * (task.currentIndex + 1);
+            const begin = chunkByteSize * task.index;
+            const end =
+                task.index === count - 1
+                    ? file.size
+                    : chunkByteSize * (task.index + 1);
             const chunk = file.slice(begin, end);
-            try{
-                const ab = await this._readAsArrayBuffer(chunk) as ArrayBuffer;
+            try {
+                const ab = (await this._readAsArrayBuffer(
+                    chunk,
+                )) as ArrayBuffer;
 
                 //@ts-ignore
                 spark.append(ab);
-                const progress = task.currentIndex / count * 100;
+                const progress = (task.index / count) * 100;
                 const returnProgress = Math.floor(progress);
-                this._returnMessage({id:task.id, type:ReturnMessageType.PROGRESS, progress:returnProgress});
-                chunks.push({ data: chunk, index: task.currentIndex });
-            }catch(error){
-                task.status = 'ERROR';
+                this._returnMessage({
+                    id: task.id,
+                    type: ReturnMessageType.PROGRESS,
+                    progress: returnProgress,
+                });
+                chunks.push({ data: chunk, index: task.index });
+            } catch (error) {
+                task.executeStatus = 'ERROR';
 
                 /**不需要移除task */
                 this._shiftTaskAndExecuteNext();
-                return this._returnMessage({id:task.id, type:ReturnMessageType.ERROR, message:'catch an error while reading blob to arraybuffer'})
+                return this._returnMessage({
+                    id: task.id,
+                    type: ReturnMessageType.ERROR,
+                    message: 'catch an error while reading blob to arraybuffer',
+                });
             }
-
         }
         // const md5Features = file.name+'-'+file.modifiedTime+'-'+file.size;
         // spark.append(md5Features);
         const md5 = spark.end();
         const fileProps = {
-            id:task.id,
-            name,
-            timestemp:Date.now(),
-            file,
+            ...task,
             md5,
-            chunks:[...chunks],
-            total:chunks.length,
-            index:0,
-            extention,
-            progress:0
+            chunks: [...chunks],
+            total: chunks.length,
+            index: 0,
+            progress: 0,
         };
-        this._returnMessage({id:task.id, type:ReturnMessageType.SUCCESS, file:fileProps});
+        this._returnMessage({
+            id: task.id,
+            type: ReturnMessageType.SUCCESS,
+            file: fileProps,
+        });
 
         /**重新取第一个PENDING任务执行 */
-       this._shiftTaskAndExecuteNext(task);
+        this._shiftTaskAndExecuteNext(task);
     }
 
     /**
      * 移除第一个任务，并执行下一个非PAUSE|ERROR的任务
      */
-    private _shiftTaskAndExecuteNext(task?:TaskProps){
-
-        if(task){
-            const index = this._taskList.findIndex(_task=>_task.id === task.id);
-            if(index !== -1) this._taskList.splice(index, 1);
+    private _shiftTaskAndExecuteNext(task?: TaskProps) {
+        if (task) {
+            const index = this._taskList.findIndex(
+                (_task) => _task.id === task.id,
+            );
+            if (index !== -1) this._taskList.splice(index, 1);
         }
 
         this._currentTask = null;
-        if(this._taskList.length){
-            const pendingTaskList = this._taskList.filter(task=>task.status === 'PENDING');
-            if(pendingTaskList.length){
+        if (this._taskList.length) {
+            const pendingTaskList = this._taskList.filter(
+                (task) => task.executeStatus === 'PENDING',
+            );
+            if (pendingTaskList.length) {
                 this._currentTask = pendingTaskList[0];
-                this._currentTask.status = 'RUNNING';
+                this._currentTask.executeStatus = 'RUNNING';
                 this._executeTask(this._currentTask);
             }
         }
@@ -278,7 +338,7 @@ class ChunkWorker{
      * 转blob为arraybuffer
      * @param blobData
      */
-    private _readAsArrayBuffer(blobData:Blob):Promise<ArrayBuffer|Error>{
+    private _readAsArrayBuffer(blobData: Blob): Promise<ArrayBuffer | Error> {
         return new Promise((resolve, reject) => {
             const reader = new FileReader();
 
@@ -290,24 +350,14 @@ class ChunkWorker{
                 } else {
                     reject(new Error('progress event target is undefined'));
                 }
-            }
+            };
             reader.onerror = () => {
                 reject(new Error('fileReader read failed'));
-            }
+            };
             reader.readAsArrayBuffer(blobData);
         });
     }
-
 }
 
 //@ts-ignore
 self.worker = new ChunkWorker();
-
-
-
-
-
-
-
-
-

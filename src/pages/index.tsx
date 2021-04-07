@@ -1,127 +1,124 @@
-
-
 import React, { ChangeEventHandler } from 'react';
 import SparkMD5 from 'spark-md5';
 import Axios from 'axios';
-import { FileProps, MessageData, POST_MESSAGE_TYPE, RETURN_MESSAGE_TYPE } from '../upload/UploadProps';
+import {
+    BaseFileProps,
+    FileProps,
+    FileStatus,
+    MessageData,
+    PostMessageType,
+    ReturnMessageType,
+} from '../upload/BaseProps';
 import { ThreadPool } from '../upload/ThreadPool';
+import { TypeUtils } from '../upload/TypeUtils';
+import { Uploader } from '../upload/Uploader';
+import { Table, Button } from 'antd';
 
-
+interface UploadState {
+    fileList: FileProps[];
+}
 
 /**1MB的字节 */
 const MB = 1024 * 1024;
-export default class ChunkUpload extends React.Component<{}, {progress:number, status:string}> {
+export default class ChunkUpload extends React.Component<{}, UploadState> {
     private chunks = [];
-    private _files:FileProps[] = [];
-    private _threadPool = ThreadPool.create();
-    constructor(props:{}) {
+    private _uploader = Uploader.create();
+    private _files: FileProps[] = [];
+    constructor(props: {}) {
         super(props);
 
         this.state = {
-            progress: 0,
-
-            /**MD5_AND_CHUNK UPLOAD */
-            status:''
-        }
+            fileList: [],
+        };
         this.initialize();
     }
 
-
-    initialize(){
-
-        fileWorker.onmessage = (evt:MessageEvent<MessageData>)=>{
-
-            const { id, file, message, type, progress } = evt.data;
-
-            if(type === RETURN_MESSAGE_TYPE.PROGRESS){
-                this.setState({status:'正在计算MD5与切片', progress:progress!});
-            }
-            if(type === RETURN_MESSAGE_TYPE.CANCEL){
-                this.setState({status:'任务文件移除成功', progress:0});
-            }
-            if(type === RETURN_MESSAGE_TYPE.SUCCESS){
-                this.setState({status:'正在上传', progress:0});
-                if(file){
-                    this.uploadChunks(file);
-                }
-            }
-        }
+    initialize() {
+        this._uploader.onChange = (fileId, file, fileList) => {
+            console.log(fileId, 'render');
+            this.setState({ fileList: [...fileList] });
+        };
     }
 
     /**选择文件 */
-    async onChange(evt:any) {
+    async onChange(evt: any) {
         const files = evt.target.files;
+
         if (!files.length) return;
         const file = files[0];
-        this.setState({status:'正在计算MD5与切片', progress:0});
-        const task = {id:'123', file:file};
-        fileWorker.postMessage({type:'ADD', task, id:'123'});
+        const fileProps = this._uploader.post(file);
+        evt.target.value = '';
+        if (!fileProps) return;
+        this.state.fileList.push(fileProps);
+        this.setState({ fileList: [...this.state.fileList] });
     }
 
-    onPause(){
-        fileWorker.postMessage({type:POST_MESSAGE_TYPE.PAUSE, task:{id:'123'}});
-    }
+    onPause() {}
 
-    onRetry(){
-        fileWorker.postMessage({type:POST_MESSAGE_TYPE.RETRY, task:{id:'123'}});
-    }
+    onRetry() {}
 
-    onCancel(){
-        fileWorker.postMessage({type:POST_MESSAGE_TYPE.CANCEL, task:{id:'123'}});
-    }
-
-    /**上传分片 */
-    uploadChunks(upload:FileProps) {
-        let { chunks, md5, total, index, extention } = upload;
-        const uploadNext = async (chunkIndex:number):Promise<void> => {
-            const chunk = chunks[chunkIndex];
-            const formData = new FormData();
-            formData.append('data', chunk.data);
-            formData.append('index', chunk.index+'');
-            formData.append('total', total+'');
-            formData.append('md5', md5);
-            formData.append('ext', extention);
-            const totalChunkProgress = index / total * 100;
-            const oneChunkProgress = 1 / total;
-            const res = await Axios.post('http://localhost:4000/uploadChunck', formData, {
-                onUploadProgress: (p) => {
-                    const chunkProgress = Math.floor(100 * oneChunkProgress * (p.loaded / p.total));
-                    const progress = totalChunkProgress + chunkProgress;
-                    if(progress > 99){
-                        return this.setState({ status:'正在合并', progress: Math.floor(progress) });
-                    }
-                    this.setState({ progress: Math.floor(progress) });
-                },
-                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-                timeout: 20 * 60 * 60 * 1000
-            });
-            if (res.data.code === 'UPLOADED') {
-                this.setState({ progress: 100 });
-                return console.log(res.data.msg);
-            }
-
-            if (index < total - 1) {
-                index++;
-                console.log('current index: ' + index);
-                console.log('total: ' + total);
-                return uploadNext(index);
-            }
-            if (res.data.code === 'SUCCESS') {
-                this.setState({ progress: 100 , status:'上传完成'});
-            }
-            console.log('upload end');
-        }
-        uploadNext(index);
+    /**
+     * 取消任务
+     * @param id
+     */
+    onCancel(id: string) {
+        this._uploader.remove(id);
     }
 
     render() {
-        const { status, progress } = this.state;
-        return <div>
-            选择<input onChange={this.onChange.bind(this)} type="file" id="file" />
-            {status}：<span>{progress + '%'}</span>
-            <button onClick={this.onPause.bind(this)}>暂停</button>
-            <button onClick={this.onRetry.bind(this)}>重试</button>
-            <button onClick={this.onCancel.bind(this)}>取消</button>
-        </div>
+        const columns = [
+            {
+                title: '名称',
+                dataIndex: 'name',
+            },
+            {
+                title: '大小',
+                dataIndex: 'transformedSize',
+            },
+            {
+                title: '上传时间',
+                dataIndex: 'transformedTime',
+            },
+            {
+                title: '状态',
+                dataIndex: 'status',
+            },
+            {
+                title: '进度',
+                dataIndex: 'progress',
+                render(progress: number) {
+                    return progress + '%';
+                },
+            },
+            {
+                title: '操作',
+                dataIndex: 'id',
+                render: (id: string) => {
+                    return (
+                        <div>
+                            <Button>暂停</Button>
+                            <Button>重试</Button>
+                            <Button onClick={this.onCancel.bind(this, id)}>
+                                取消
+                            </Button>
+                        </div>
+                    );
+                },
+            },
+        ];
+        const { fileList } = this.state;
+        return (
+            <div style={{ padding: 10 }}>
+                <div>
+                    选择
+                    <input
+                        onChange={this.onChange.bind(this)}
+                        type="file"
+                        id="file"
+                    />
+                </div>
+                <Table columns={columns} dataSource={fileList} />
+            </div>
+        );
     }
 }
