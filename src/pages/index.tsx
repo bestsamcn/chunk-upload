@@ -35,7 +35,6 @@ export default class ChunkUpload extends React.Component<{}, UploadState> {
 
   async initialize() {
     await this._uploader.defer.promise;
-    console.log(4);
     this._uploader.onChange = (fileId, file, fileList) => {
       console.log(fileId, 'render');
       this.setState({ fileList: [...fileList] });
@@ -45,11 +44,19 @@ export default class ChunkUpload extends React.Component<{}, UploadState> {
   /**选择文件 */
   async onChange(evt: any) {
     const files = evt.target.files;
-
     if (!files.length) return;
-    const file = files[0];
-    const fileProps = this._uploader.post(file);
+    for (const file of files) {
+      this.postFile(file);
+    }
     evt.target.value = '';
+  }
+
+  /**
+   * 提交文件
+   * @param file
+   */
+  postFile(file: File) {
+    const fileProps = this._uploader.post(file);
     if (!fileProps) return;
     this.state.fileList.push(fileProps);
     this.setState({ fileList: [...this.state.fileList] });
@@ -74,6 +81,24 @@ export default class ChunkUpload extends React.Component<{}, UploadState> {
    */
   onCancel(id: string) {
     this._uploader.remove(id);
+  }
+
+  /**释放 */
+  onDrop(evt: React.DragEvent<HTMLDivElement>) {
+    if (!evt.dataTransfer) return;
+    const files = evt.dataTransfer.files;
+    for (const file of files) {
+      this.postFile(file);
+    }
+    evt.preventDefault();
+  }
+
+  /**
+   * 阻止默认事件
+   * @param evt
+   */
+  onDragOver(evt: React.DragEvent<HTMLDivElement>) {
+    evt.preventDefault();
   }
 
   render() {
@@ -119,8 +144,19 @@ export default class ChunkUpload extends React.Component<{}, UploadState> {
     return (
       <div style={{ padding: 10 }}>
         <div>
-          选择
-          <input onChange={this.onChange.bind(this)} type="file" id="file" />
+          <div
+            style={{ width: 200, height: 200, background: '#ebebeb' }}
+            contentEditable="true"
+            onDrop={this.onDrop.bind(this)}
+            onDragOver={this.onDragOver.bind(this)}
+          >
+            <input
+              multiple
+              onChange={this.onChange.bind(this)}
+              type="file"
+              id="file"
+            />
+          </div>
         </div>
         <Table columns={columns} dataSource={fileList} />
       </div>

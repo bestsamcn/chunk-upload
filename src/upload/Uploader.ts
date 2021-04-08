@@ -2,7 +2,7 @@
  * @Description: File Upload
  * @Author: SZEWEC
  * @Date: 2021-04-01 15:36:34
- * @LastEditTime: 2021-04-08 15:21:15
+ * @LastEditTime: 2021-04-08 15:30:17
  * @LastEditors: Sam
  */
 
@@ -285,6 +285,11 @@ export class Uploader {
 				},
 			);
 
+			if (res.status === 500) {
+				file.status = FileStatus.UPLOAD_ERROR;
+				return this.onChange(id, file, this._fileList, '上传出错');
+			}
+
 			/**成功或者已经上传过都会结束 */
 			if (res.data.code === 'COMPLETE') {
 				file.progress = 100;
@@ -316,6 +321,17 @@ export class Uploader {
 
 		if (file?.canceler) {
 			file?.canceler?.('upload was canceled by user', true);
+			return;
+		}
+
+		if (file.status === FileStatus.UPLOAD_PAUSE) {
+			this._fileList.splice(index, 1);
+			this.onChange(
+				file.id,
+				file,
+				this._fileList,
+				'upload was canceled by user',
+			);
 			return;
 		}
 
